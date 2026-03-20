@@ -5,37 +5,71 @@ from . import config, local_store, cloud_client
 mcp = FastMCP("mcp-knowledge-base")
 
 SUMMARY_THRESHOLD = 10
+RELEVANCE_THRESHOLD = 0.6  # above this, skip LLM filter
 
 
 def _cloud_configured() -> bool:
     return all([config.GATEWAY_URL, config.CLIENT_ID, config.CLIENT_SECRET, config.TOKEN_URL])
 
 
-def _summarize(query: str, results: list[dict]) -> str | None:
-    """Use Bedrock to summarize many results into actionable advice. Tries multiple models."""
+def _bedrock_client():
     import boto3
-    client = boto3.client("bedrock-runtime", region_name=config.BEDROCK_REGION)
-    lessons_text = "\n\n".join(
-        f"**{r['topic']}** (confidence: {r.get('confidence', '?')}, score: {r.get('score', '?')})\n"
-        f"Problem: {r['problem'][:200]}\nResolution: {r['resolution'][:300]}"
-        for r in results
-    )
-    messages = [{"role": "user", "content": [{"text":
-        f"A user searched a knowledge base for: \"{query}\"\n\n"
-        f"Here are {len(results)} matching lessons:\n\n{lessons_text}\n\n"
-        f"Synthesize these into a concise, actionable summary. Group related lessons. "
-        f"Highlight the most relevant ones for the query. Be direct and practical."
-    }]}]
+    return boto3.client("bedrock-runtime", region_name=config.BEDROCK_REGION)
+
+
+def _llm_call(client, messages: list[dict], max_tokens: int = 1024) -> str | None:
     for model_id in config.SUMMARY_MODELS:
         try:
             resp = client.converse(
                 modelId=model_id, messages=messages,
-                inferenceConfig={"maxTokens": 1024},
+                inferenceConfig={"maxTokens": max_tokens},
             )
             return resp["output"]["message"]["content"][0]["text"]
         except Exception:
             continue
     return None
+
+
+def _filter_relevant(query: str, results: list[dict]) -> list[dict]:
+    """Use LLM to filter out irrelevant results from borderline matches."""
+    # Split: high-confidence pass through, borderline get LLM-checked
+    high = [r for r in results if r.get("score", 0) >= RELEVANCE_THRESHOLD]
+    borderline = [r for r in results if r.get("score", 0) < RELEVANCE_THRESHOLD]
+    if not borderline:
+        return high
+
+    listing = "\n".join(
+        f"{i}: {r['topic']} — {r['problem'][:100]}" for i, r in enumerate(borderline)
+    )
+    text = _llm_call(_bedrock_client(), [{"role": "user", "content": [{"text":
+        f"Query: \"{query}\"\n\nWhich of these knowledge base results are relevant or even partially related?\n\n"
+        f"{listing}\n\nOnly remove results about a completely different technology or domain. "
+        f"Keep anything tangentially related. Return ONLY the numbers of results to keep, comma-separated. "
+        f"If none are relevant at all, return \"none\"."
+    }]}], max_tokens=100)
+    if not text or "none" in text.lower():
+        return high
+
+    import re
+    keep = set()
+    for m in re.finditer(r'\d+', text):
+        keep.add(int(m.group()))
+    return high + [r for i, r in enumerate(borderline) if i in keep]
+
+
+def _summarize(query: str, results: list[dict]) -> str | None:
+    """Use Bedrock to summarize many results into actionable advice."""
+    lessons_text = "\n\n".join(
+        f"**{r['topic']}** (confidence: {r.get('confidence', '?')}, score: {r.get('score', '?')})\n"
+        f"Problem: {r['problem'][:200]}\nResolution: {r['resolution'][:300]}"
+        for r in results
+    )
+    return _llm_call(_bedrock_client(), [{"role": "user", "content": [{"text":
+        f"A user searched a knowledge base for: \"{query}\"\n\n"
+        f"Here are {len(results)} matching lessons:\n\n{lessons_text}\n\n"
+        f"Synthesize these into a concise, actionable summary. Group related lessons. "
+        f"Highlight the most relevant ones for the query. Be direct and practical."
+    }]}])
 
 
 @mcp.tool()
@@ -67,6 +101,10 @@ def search_lessons(query: str, k: int = 10) -> dict:
             )
         except Exception:
             pass
+    if not results:
+        return {"results": [], "count": 0, "message": "No relevant lessons found", "query": query}
+
+    results = _filter_relevant(query, results)
     if not results:
         return {"results": [], "count": 0, "message": "No relevant lessons found", "query": query}
 

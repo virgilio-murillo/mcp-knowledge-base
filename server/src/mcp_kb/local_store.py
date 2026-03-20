@@ -53,7 +53,7 @@ def _confidence(score: float) -> str:
     return "low"
 
 
-THRESHOLD = 0.45  # minimum normalized score to include
+THRESHOLD = 0.1  # low threshold — LLM relevance filter handles precision
 
 
 def search(chroma_dir: str, query: str, k: int = 5) -> list[dict]:
