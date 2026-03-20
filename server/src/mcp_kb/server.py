@@ -28,19 +28,17 @@ def add_lesson(topic: str, problem: str, resolution: str, tags: list[str] | None
 
 @mcp.tool()
 def search_lessons(query: str, k: int = 5) -> list[dict]:
-    """Search lessons learned using semantic similarity. Searches local cache first, falls back to cloud."""
+    """Search lessons learned using semantic similarity. Searches local cache first, falls back to cloud. Returns results with confidence labels (high/medium/low)."""
     results = local_store.search(config.CHROMA_DIR, query, k)
-    if results:
-        return results
-    if _cloud_configured():
+    if not results and _cloud_configured():
         try:
-            return cloud_client.search_lessons(
+            results = cloud_client.search_lessons(
                 config.GATEWAY_URL, config.TOKEN_URL, config.CLIENT_ID, config.CLIENT_SECRET,
                 query=query, k=k,
             )
         except Exception:
             pass
-    return []
+    return results or [{"message": "No relevant lessons found", "query": query}]
 
 
 @mcp.tool()

@@ -45,7 +45,13 @@ def write_lesson(gateway_url: str, token_url: str, client_id: str, client_secret
 
 def search_lessons(gateway_url: str, token_url: str, client_id: str, client_secret: str, query: str, k: int = 5) -> list:
     token = _get_token(token_url, client_id, client_secret)
-    return _call_tool(gateway_url, token, "search-lessons___search_lessons", {"query": query, "k": k}).get("results", [])
+    results = _call_tool(gateway_url, token, "search-lessons___search_lessons", {"query": query, "k": k}).get("results", [])
+    # Normalize cloud scores (already 0-1 cosine similarity) and add confidence
+    for r in results:
+        s = r.get("score", 0)
+        r["score"] = round(s, 3)
+        r["confidence"] = "high" if s >= 0.6 else ("medium" if s >= 0.4 else "low")
+    return [r for r in results if r.get("score", 0) >= 0.2]
 
 
 def sync_lessons(gateway_url: str, token_url: str, client_id: str, client_secret: str) -> list:

@@ -19,6 +19,14 @@ def _col(chroma_dir: str):
 
 
 def add(chroma_dir: str, topic: str, problem: str, resolution: str, tags: list[str] | None = None) -> dict:
+    col = _col(chroma_dir)
+    # Dedup: check if similar lesson already exists
+    if col.count() > 0:
+        existing = col.query(query_texts=[f"{topic} {problem}"], n_results=1)
+        if existing["distances"][0] and existing["distances"][0][0] < 0.15:
+            m = existing["metadatas"][0][0]
+            return {"id": existing["ids"][0][0], "duplicate": True, **{k: m[k] for k in ("topic", "problem", "resolution")}, "tags": json.loads(m["tags"])}
+
     lesson_id = str(uuid.uuid4())
     doc = f"{topic} {problem} {resolution}"
     meta = {
@@ -28,8 +36,24 @@ def add(chroma_dir: str, topic: str, problem: str, resolution: str, tags: list[s
         "tags": json.dumps(tags or []),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    _col(chroma_dir).add(ids=[lesson_id], documents=[doc], metadatas=[meta])
+    col.add(ids=[lesson_id], documents=[doc], metadatas=[meta])
     return {"id": lesson_id, **meta, "tags": tags or []}
+
+
+def _normalize_score(raw_distance: float) -> float:
+    """Convert ChromaDB L2 distance to 0-1 similarity score."""
+    return max(0.0, 1.0 / (1.0 + raw_distance))
+
+
+def _confidence(score: float) -> str:
+    if score >= 0.6:
+        return "high"
+    if score >= 0.45:
+        return "medium"
+    return "low"
+
+
+THRESHOLD = 0.45  # minimum normalized score to include
 
 
 def search(chroma_dir: str, query: str, k: int = 5) -> list[dict]:
@@ -40,13 +64,17 @@ def search(chroma_dir: str, query: str, k: int = 5) -> list[dict]:
     lessons = []
     for i, mid in enumerate(results["ids"][0]):
         m = results["metadatas"][0][i]
+        score = _normalize_score(results["distances"][0][i])
+        if score < THRESHOLD:
+            continue
         lessons.append({
             "id": mid,
             "topic": m["topic"],
             "problem": m["problem"],
             "resolution": m["resolution"],
             "tags": json.loads(m["tags"]),
-            "score": 1 - results["distances"][0][i],  # chroma returns L2 distance
+            "score": round(score, 3),
+            "confidence": _confidence(score),
         })
     return lessons
 
