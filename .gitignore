@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+*.egg-info/
+dist/
+build/
+.aws-sam/
+samconfig.toml
+node_modules/
+.chromadb/
