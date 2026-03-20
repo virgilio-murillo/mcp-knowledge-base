@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MCP Knowledge Base - Gateway Targets
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  WriteLessonTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !ImportValue
+        Fn::Sub: mcp-kb-gateway-id-${Env}
+      Name: write-lesson
+      Description: Store a new lesson learned
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !ImportValue
+              Fn::Sub: mcp-kb-write-lesson-arn-${Env}
+            ToolSchema:
+              InlinePayload:
+                - Name: write_lesson
+                  Description: Store a new lesson learned (debugging tip, solution, or pattern)
+                  InputSchema:
+                    Type: object
+                    Properties:
+                      topic:
+                        Type: string
+                        Description: The topic or category
+                      problem:
+                        Type: string
+                        Description: The problem or error encountered
+                      resolution:
+                        Type: string
+                        Description: The solution or fix applied
+                      tags:
+                        Type: array
+                        Description: Tags for categorization
+                        Items:
+                          Type: string
+                    Required:
+                      - topic
+                      - problem
+                      - resolution
+
+  SearchLessonsTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !ImportValue
+        Fn::Sub: mcp-kb-gateway-id-${Env}
+      Name: search-lessons
+      Description: Semantic search across lessons
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !ImportValue
+              Fn::Sub: mcp-kb-search-lessons-arn-${Env}
+            ToolSchema:
+              InlinePayload:
+                - Name: search_lessons
+                  Description: Search lessons using semantic similarity
+                  InputSchema:
+                    Type: object
+                    Properties:
+                      query:
+                        Type: string
+                        Description: Natural language search query
+                      k:
+                        Type: integer
+                        Description: Number of results (default 5)
+                    Required:
+                      - query
+
+  SyncLessonsTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !ImportValue
+        Fn::Sub: mcp-kb-gateway-id-${Env}
+      Name: sync-lessons
+      Description: Get all lessons for local cache sync
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !ImportValue
+              Fn::Sub: mcp-kb-sync-lessons-arn-${Env}
+            ToolSchema:
+              InlinePayload:
+                - Name: sync_lessons
+                  Description: Retrieve all lessons for syncing to local cache
+                  InputSchema:
+                    Type: object
+                    Properties: {}

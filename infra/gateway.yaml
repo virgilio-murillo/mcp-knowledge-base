@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MCP Knowledge Base - AgentCore Gateway
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub mcp-kb-gateway-role-${Env}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambdas
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: mcp-kb-write-lesson-arn-${Env}
+                  - !ImportValue
+                    Fn::Sub: mcp-kb-search-lessons-arn-${Env}
+                  - !ImportValue
+                    Fn::Sub: mcp-kb-sync-lessons-arn-${Env}
+
+  McpGateway:
+    Type: AWS::BedrockAgentCore::Gateway
+    Properties:
+      Name: !Sub mcp-kb-${Env}
+      Description: MCP Knowledge Base Gateway
+      ProtocolType: MCP
+      AuthorizerType: CUSTOM_JWT
+      AuthorizerConfiguration:
+        CustomJWTAuthorizer:
+          DiscoveryUrl: !ImportValue
+            Fn::Sub: mcp-kb-discovery-url-${Env}
+          AllowedClients:
+            - !ImportValue
+              Fn::Sub: mcp-kb-client-id-${Env}
+          AllowedScopes:
+            - mcp-kb/tools
+      RoleArn: !GetAtt GatewayRole.Arn
+      ExceptionLevel: DEBUG
+
+Outputs:
+  GatewayId:
+    Value: !GetAtt McpGateway.GatewayIdentifier
+    Export:
+      Name: !Sub mcp-kb-gateway-id-${Env}
+  GatewayUrl:
+    Value: !GetAtt McpGateway.GatewayUrl
+    Export:
+      Name: !Sub mcp-kb-gateway-url-${Env}

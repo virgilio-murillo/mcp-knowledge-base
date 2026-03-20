@@ -9,3 +9,4 @@ build/
 samconfig.toml
 node_modules/
 .chromadb/
+kiro-notes/

@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MCP Knowledge Base - Cognito auth
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub mcp-kb-${Env}
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+
+  ResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: mcp-kb
+      Name: MCP Knowledge Base
+      UserPoolId: !Ref UserPool
+      Scopes:
+        - ScopeName: tools
+          ScopeDescription: Access MCP KB tools
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      ClientName: !Sub mcp-kb-client-${Env}
+      UserPoolId: !Ref UserPool
+      GenerateSecret: true
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - mcp-kb/tools
+      SupportedIdentityProviders:
+        - COGNITO
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub mcp-kb-${AWS::AccountId}-${Env}
+      UserPoolId: !Ref UserPool
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub mcp-kb-user-pool-id-${Env}
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: !Sub mcp-kb-user-pool-arn-${Env}
+  ClientId:
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub mcp-kb-client-id-${Env}
+  TokenUrl:
+    Value: !Sub https://mcp-kb-${AWS::AccountId}-${Env}.auth.${AWS::Region}.amazoncognito.com/oauth2/token
+    Export:
+      Name: !Sub mcp-kb-token-url-${Env}
+  DiscoveryUrl:
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}/.well-known/openid-configuration
+    Export:
+      Name: !Sub mcp-kb-discovery-url-${Env}

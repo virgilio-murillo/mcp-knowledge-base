@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MCP Knowledge Base - S3 + Lambda functions
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        LESSONS_BUCKET: !Ref LessonsBucket
+    Layers:
+      - !Ref CommonLayer
+
+Resources:
+  LessonsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub mcp-kb-lessons-${AWS::AccountId}-${Env}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldVersions
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            Status: Enabled
+
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub mcp-kb-common-${Env}
+      ContentUri: layers/common/
+      CompatibleRuntimes:
+        - python3.13
+
+  WriteLessonFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub mcp-kb-write-lesson-${Env}
+      Handler: app.handler
+      CodeUri: functions/write_lesson/
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref LessonsBucket
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+
+  SearchLessonsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub mcp-kb-search-lessons-${Env}
+      Handler: app.handler
+      CodeUri: functions/search_lessons/
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref LessonsBucket
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+
+  SyncLessonsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub mcp-kb-sync-lessons-${Env}
+      Handler: app.handler
+      CodeUri: functions/sync_lessons/
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref LessonsBucket
+
+Outputs:
+  LessonsBucketName:
+    Value: !Ref LessonsBucket
+    Export:
+      Name: !Sub mcp-kb-bucket-${Env}
+  WriteLessonArn:
+    Value: !GetAtt WriteLessonFunction.Arn
+    Export:
+      Name: !Sub mcp-kb-write-lesson-arn-${Env}
+  SearchLessonsArn:
+    Value: !GetAtt SearchLessonsFunction.Arn
+    Export:
+      Name: !Sub mcp-kb-search-lessons-arn-${Env}
+  SyncLessonsArn:
+    Value: !GetAtt SyncLessonsFunction.Arn
+    Export:
+      Name: !Sub mcp-kb-sync-lessons-arn-${Env}

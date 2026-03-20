@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-kb"
+version = "0.1.0"
+description = "MCP server for storing and retrieving lessons learned"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]",
+    "chromadb",
+    "httpx",
+]
+
+[project.scripts]
+mcp-kb = "mcp_kb.server:main"
