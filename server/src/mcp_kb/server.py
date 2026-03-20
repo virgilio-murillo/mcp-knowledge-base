@@ -11,29 +11,31 @@ def _cloud_configured() -> bool:
     return all([config.GATEWAY_URL, config.CLIENT_ID, config.CLIENT_SECRET, config.TOKEN_URL])
 
 
-def _summarize(query: str, results: list[dict]) -> str:
-    """Use Bedrock to summarize many results into actionable advice."""
-    try:
-        import boto3
-        client = boto3.client("bedrock-runtime", region_name=config.BEDROCK_REGION)
-        lessons_text = "\n\n".join(
-            f"**{r['topic']}** (confidence: {r.get('confidence', '?')}, score: {r.get('score', '?')})\n"
-            f"Problem: {r['problem'][:200]}\nResolution: {r['resolution'][:300]}"
-            for r in results
-        )
-        resp = client.converse(
-            modelId=config.SUMMARY_MODEL,
-            messages=[{"role": "user", "content": [{"text":
-                f"A user searched a knowledge base for: \"{query}\"\n\n"
-                f"Here are {len(results)} matching lessons:\n\n{lessons_text}\n\n"
-                f"Synthesize these into a concise, actionable summary. Group related lessons. "
-                f"Highlight the most relevant ones for the query. Be direct and practical."
-            }]}],
-            inferenceConfig={"maxTokens": 1024},
-        )
-        return resp["output"]["message"]["content"][0]["text"]
-    except Exception as e:
-        return f"(Summary unavailable: {e})"
+def _summarize(query: str, results: list[dict]) -> str | None:
+    """Use Bedrock to summarize many results into actionable advice. Tries multiple models."""
+    import boto3
+    client = boto3.client("bedrock-runtime", region_name=config.BEDROCK_REGION)
+    lessons_text = "\n\n".join(
+        f"**{r['topic']}** (confidence: {r.get('confidence', '?')}, score: {r.get('score', '?')})\n"
+        f"Problem: {r['problem'][:200]}\nResolution: {r['resolution'][:300]}"
+        for r in results
+    )
+    messages = [{"role": "user", "content": [{"text":
+        f"A user searched a knowledge base for: \"{query}\"\n\n"
+        f"Here are {len(results)} matching lessons:\n\n{lessons_text}\n\n"
+        f"Synthesize these into a concise, actionable summary. Group related lessons. "
+        f"Highlight the most relevant ones for the query. Be direct and practical."
+    }]}]
+    for model_id in config.SUMMARY_MODELS:
+        try:
+            resp = client.converse(
+                modelId=model_id, messages=messages,
+                inferenceConfig={"maxTokens": 1024},
+            )
+            return resp["output"]["message"]["content"][0]["text"]
+        except Exception:
+            continue
+    return None
 
 
 @mcp.tool()
@@ -70,7 +72,9 @@ def search_lessons(query: str, k: int = 10) -> dict:
 
     output = {"results": results, "count": len(results), "query": query}
     if len(results) > SUMMARY_THRESHOLD:
-        output["summary"] = _summarize(query, results)
+        summary = _summarize(query, results)
+        if summary:
+            output["summary"] = summary
     return output
 
 
