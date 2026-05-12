@@ -10,3 +10,10 @@ samconfig.toml
 node_modules/
 .chromadb/
 kiro-notes/
+investigation/
+TASK.md
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+.coverage
+.kiro-shadow/

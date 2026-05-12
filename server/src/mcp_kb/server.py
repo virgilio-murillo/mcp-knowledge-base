@@ -93,14 +93,6 @@ def add_lesson(topic: str, problem: str, resolution: str, tags: list[str] | None
 def search_lessons(query: str, k: int = 10) -> dict:
     """Search lessons learned using semantic similarity. Returns multiple results with confidence labels. When more than 10 results match, includes an AI-generated summary."""
     results = local_store.search(config.CHROMA_DIR, query, k)
-    if not results and _cloud_configured():
-        try:
-            results = cloud_client.search_lessons(
-                config.GATEWAY_URL, config.TOKEN_URL, config.CLIENT_ID, config.CLIENT_SECRET,
-                query=query, k=k,
-            )
-        except Exception:
-            pass
     if not results:
         return {"results": [], "count": 0, "message": "No relevant lessons found", "query": query}
 
@@ -131,4 +123,13 @@ def sync() -> dict:
 
 
 def main():
+    # Auto-sync cloud → local on startup so local always has everything
+    if _cloud_configured():
+        try:
+            lessons = cloud_client.sync_lessons(
+                config.GATEWAY_URL, config.TOKEN_URL, config.CLIENT_ID, config.CLIENT_SECRET,
+            )
+            local_store.sync_from_cloud(config.CHROMA_DIR, lessons)
+        except Exception:
+            pass
     mcp.run(transport="stdio")
